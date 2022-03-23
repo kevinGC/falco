@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2019 The Falco Authors.
+Copyright (C) 2022 The Falco Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,67 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include <memory>
-
-#include "CivetServer.h"
-
+#define CPPHTTPLIB_OPENSSL_SUPPORT
+#include <httplib.h>
+#include <thread>
 #include "configuration.h"
-#include "falco_engine.h"
-#include "falco_outputs.h"
-
-class k8s_audit_handler : public CivetHandler
-{
-public:
-	k8s_audit_handler(falco_engine *engine, falco_outputs *outputs);
-	virtual ~k8s_audit_handler();
-
-	bool handleGet(CivetServer *server, struct mg_connection *conn);
-	bool handlePost(CivetServer *server, struct mg_connection *conn);
-
-	static bool accept_data(falco_engine *engine,
-				falco_outputs *outputs,
-				std::string &post_data, std::string &errstr);
-
-	static std::string m_k8s_audit_event_source;
-
-private:
-	falco_engine *m_engine;
-	falco_outputs *m_outputs;
-	bool accept_uploaded_data(std::string &post_data, std::string &errstr);
-};
-
-class k8s_healthz_handler : public CivetHandler
-{
-public:
-	k8s_healthz_handler()
-	{
-	}
-
-	virtual ~k8s_healthz_handler()
-	{
-	}
-
-	bool handleGet(CivetServer *server, struct mg_connection *conn);
-};
 
 class falco_webserver
 {
 public:
-	falco_webserver();
-	virtual ~falco_webserver();
-
-	void init(falco_configuration *config,
-		  falco_engine *engine,
-		  falco_outputs *outputs);
-
-	void start();
+	virtual ~falco_webserver();		
+	void start(
+		uint32_t listen_port,
+		std::string& healthz_endpoint,
+		std::string &ssl_certificate,
+		bool ssl_enabled);
 	void stop();
 
 private:
-	falco_engine *m_engine;
-	falco_configuration *m_config;
-	falco_outputs *m_outputs;
-	unique_ptr<CivetServer> m_server;
-	unique_ptr<k8s_audit_handler> m_k8s_audit_handler;
-	unique_ptr<k8s_healthz_handler> m_k8s_healthz_handler;
+	bool m_running = false;
+	httplib::Server* m_server = NULL;
+	std::thread m_server_thread;
 };

@@ -1071,8 +1071,11 @@ int falco_init(int argc, char **argv)
 		{
 			std::string ssl_option = (config.m_webserver_ssl_enabled ? " (SSL)" : "");
 			falco_logger::log(LOG_INFO, "Starting internal webserver, listening on port " + to_string(config.m_webserver_listen_port) + ssl_option + "\n");
-			webserver.init(&config, engine, outputs);
-			webserver.start();
+			webserver.start(
+				config.m_webserver_listen_port, 
+				config.m_webserver_k8s_healthz_endpoint,
+				config.m_webserver_ssl_certificate, 
+				config.m_webserver_ssl_enabled);
 		}
 
 		// gRPC server
