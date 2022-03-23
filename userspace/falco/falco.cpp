@@ -62,7 +62,6 @@ bool g_restart = false;
 bool g_daemonized = false;
 
 static std::string syscall_source = "syscall";
-static std::string k8s_audit_source = "k8s_audit";
 
 //
 // Helper functions
@@ -95,37 +94,6 @@ static void display_fatal_err(const string &msg)
 		std::cerr << msg;
 	}
 }
-
-#ifndef MINIMAL_BUILD
-// Read a jsonl file containing k8s audit events and pass each to the engine.
-void read_k8s_audit_trace_file(falco_engine *engine,
-			       falco_outputs *outputs,
-			       string &trace_filename)
-{
-	ifstream ifs(trace_filename);
-
-	uint64_t line_num = 0;
-
-	while(ifs)
-	{
-		string line, errstr;
-
-		getline(ifs, line);
-		line_num++;
-
-		if(line == "")
-		{
-			continue;
-		}
-
-		if(!k8s_audit_handler::accept_data(engine, outputs, line, errstr))
-		{
-			falco_logger::log(LOG_ERR, "Could not read k8s audit event line #" + to_string(line_num) + ", \"" + line + "\": " + errstr + ", stopping");
-			return;
-		}
-	}
-}
-#endif
 
 static std::string read_file(std::string filename)
 {
@@ -427,9 +395,8 @@ int falco_init(int argc, char **argv)
 	falco_engine *engine = NULL;
 	falco_outputs *outputs = NULL;
 	syscall_evt_drop_mgr sdropmgr;
-	bool trace_is_scap = true;
 	string outfile;
-	std::set<std::string> enabled_sources = {syscall_source, k8s_audit_source};
+	std::set<std::string> enabled_sources = {syscall_source};
 
 	// Used for writing trace files
 	int duration_seconds = 0;
@@ -509,26 +476,19 @@ int falco_init(int argc, char **argv)
 
 		configure_output_format(app, engine);
 
-		// Create "factories" that can create filters/formatters for
-		// syscalls and k8s audit events.
+		// Create "factories" that can create filters/formatters for syscalls
 		std::shared_ptr<gen_event_filter_factory> syscall_filter_factory(new sinsp_filter_factory(inspector));
-		std::shared_ptr<gen_event_filter_factory> k8s_audit_filter_factory(new json_event_filter_factory());
-
 		std::shared_ptr<gen_event_formatter_factory> syscall_formatter_factory(new sinsp_evt_formatter_factory(inspector));
-		std::shared_ptr<gen_event_formatter_factory> k8s_audit_formatter_factory(new json_event_formatter_factory(k8s_audit_filter_factory));
 
 		engine->add_source(syscall_source, syscall_filter_factory, syscall_formatter_factory);
-		engine->add_source(k8s_audit_source, k8s_audit_filter_factory, k8s_audit_formatter_factory);
-
 		for(const auto &src : app.options().disable_sources)
 		{
 			enabled_sources.erase(src);
 		}
 
-		// XXX/mstemm technically this isn't right, you could disable syscall *and* k8s_audit and configure a plugin.
 		if(enabled_sources.empty())
 		{
-			throw std::invalid_argument("The event source \"syscall\" and \"k8s_audit\" can not be disabled together");
+			throw std::invalid_argument("At least one event source needs to be enabled");
 		}
 
 		if(app.options().validate_rules_filenames.size() > 0)
@@ -667,7 +627,6 @@ int falco_init(int argc, char **argv)
 		if(config.m_json_output)
 		{
 			syscall_formatter_factory->set_output_format(gen_event_formatter::OF_JSON);
-			k8s_audit_formatter_factory->set_output_format(gen_event_formatter::OF_JSON);
 			plugin_formatter_factory->set_output_format(gen_event_formatter::OF_JSON);
 		}
 
@@ -989,43 +948,9 @@ int falco_init(int argc, char **argv)
 			}
 			catch(sinsp_exception &e)
 			{
-				falco_logger::log(LOG_DEBUG, "Could not read trace file \"" + app.options().trace_filename + "\": " + string(e.what()));
-				trace_is_scap=false;
-			}
-
-			if(!trace_is_scap)
-			{
-#ifdef MINIMAL_BUILD
-				// Note that the webserver is not available when MINIMAL_BUILD is defined.
-				fprintf(stderr, "Cannot use k8s audit events trace file with a minimal Falco build");
+				falco_logger::log(LOG_ERR, "Could not read trace file \"" + app.options().trace_filename + "\": " + string(e.what()));
 				result = EXIT_FAILURE;
 				goto exit;
-#else
-				try {
-					string line;
-					nlohmann::json j;
-
-					// Note we only temporarily open the file here.
-					// The read file read loop will be later.
-					ifstream ifs(app.options().trace_filename);
-					getline(ifs, line);
-					j = nlohmann::json::parse(line);
-
-					falco_logger::log(LOG_INFO, "Reading k8s audit events from file: " + app.options().trace_filename + "\n");
-				}
-				catch (nlohmann::json::parse_error& e)
-				{
-					fprintf(stderr, "Trace filename %s not recognized as system call events or k8s audit events\n", app.options().trace_filename.c_str());
-					result = EXIT_FAILURE;
-					goto exit;
-				}
-				catch (exception &e)
-				{
-					fprintf(stderr, "Could not open trace filename %s for reading: %s\n", app.options().trace_filename.c_str(), e.what());
-					result = EXIT_FAILURE;
-					goto exit;
-				}
-#endif
 			}
 		}
 		else
@@ -1049,18 +974,13 @@ int falco_init(int argc, char **argv)
 			open_t open_f;
 
 			// Default mode: both event sources enabled
-			if (enabled_sources.find(syscall_source) != enabled_sources.end() &&
-			    enabled_sources.find(k8s_audit_source) != enabled_sources.end())
+			if (enabled_sources.find(syscall_source) != enabled_sources.end())
 			{
 				open_f = open_cb;
 			}
-			if (enabled_sources.find(syscall_source) == enabled_sources.end())
+			else
 			{
 				open_f = open_nodriver_cb;
-			}
-			if (enabled_sources.find(k8s_audit_source) == enabled_sources.end())
-			{
-				open_f = open_cb;
 			}
 
 			try
@@ -1147,7 +1067,7 @@ int falco_init(int argc, char **argv)
 		falco_logger::log(LOG_DEBUG, "Setting metadata download watch frequency to " + to_string(config.m_metadata_download_watch_freq_sec) + " seconds\n");
 		inspector->set_metadata_download_params(config.m_metadata_download_max_mb * 1024 * 1024, config.m_metadata_download_chunk_wait_us, config.m_metadata_download_watch_freq_sec);
 
-		if(app.options().trace_filename.empty() && config.m_webserver_enabled && enabled_sources.find(k8s_audit_source) != enabled_sources.end())
+		if(app.options().trace_filename.empty() && config.m_webserver_enabled)
 		{
 			std::string ssl_option = (config.m_webserver_ssl_enabled ? " (SSL)" : "");
 			falco_logger::log(LOG_INFO, "Starting internal webserver, listening on port " + to_string(config.m_webserver_listen_port) + ssl_option + "\n");
@@ -1175,46 +1095,33 @@ int falco_init(int argc, char **argv)
 		}
 #endif
 
-		if(!app.options().trace_filename.empty() && !trace_is_scap)
+		uint64_t num_evts;
+		num_evts = do_inspect(engine,
+						outputs,
+						inspector,
+						event_source,
+						config,
+						sdropmgr,
+						uint64_t(app.options().duration_to_tot*ONE_SECOND_IN_NS),
+						app.options().stats_filename,
+						app.options().stats_interval,
+						app.options().all_events,
+						result);
+
+		duration = ((double)clock()) / CLOCKS_PER_SEC - duration;
+
+		inspector->get_capture_stats(&cstats);
+
+		if(app.options().verbose)
 		{
-#ifndef MINIMAL_BUILD
-			read_k8s_audit_trace_file(engine,
-						  outputs,
-						  app.options().trace_filename);
-#endif
-		}
-		else
-		{
-			uint64_t num_evts;
+			fprintf(stderr, "Driver Events:%" PRIu64 "\nDriver Drops:%" PRIu64 "\n",
+				cstats.n_evts,
+				cstats.n_drops);
 
-			num_evts = do_inspect(engine,
-					      outputs,
-					      inspector,
-					      event_source,
-					      config,
-					      sdropmgr,
-					      uint64_t(app.options().duration_to_tot*ONE_SECOND_IN_NS),
-					      app.options().stats_filename,
-					      app.options().stats_interval,
-					      app.options().all_events,
-					      result);
-
-			duration = ((double)clock()) / CLOCKS_PER_SEC - duration;
-
-			inspector->get_capture_stats(&cstats);
-
-			if(app.options().verbose)
-			{
-				fprintf(stderr, "Driver Events:%" PRIu64 "\nDriver Drops:%" PRIu64 "\n",
-					cstats.n_evts,
-					cstats.n_drops);
-
-				fprintf(stderr, "Elapsed time: %.3lf, Captured Events: %" PRIu64 ", %.2lf eps\n",
-					duration,
-					num_evts,
-					num_evts / duration);
-			}
-
+			fprintf(stderr, "Elapsed time: %.3lf, Captured Events: %" PRIu64 ", %.2lf eps\n",
+				duration,
+				num_evts,
+				num_evts / duration);
 		}
 
 		// Honor -M also when using a trace file.

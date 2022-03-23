@@ -155,27 +155,13 @@ void falco_outputs::handle_event(gen_event *evt, string &rule, string &source,
 	cmsg.rule = rule;
 
 	string sformat;
-	if(source != "k8s_audit")
+	if(m_time_format_iso_8601)
 	{
-		if(m_time_format_iso_8601)
-		{
-			sformat = "*%evt.time.iso8601: " + falco_common::priority_names[priority];
-		}
-		else
-		{
-			sformat = "*%evt.time: " + falco_common::priority_names[priority];
-		}
+		sformat = "*%evt.time.iso8601: " + falco_common::priority_names[priority];
 	}
 	else
 	{
-		if(m_time_format_iso_8601)
-		{
-			sformat = "*%jevt.time.iso8601: " + falco_common::priority_names[priority];
-		}
-		else
-		{
-			sformat = "*%jevt.time: " + falco_common::priority_names[priority];
-		}
+		sformat = "*%evt.time: " + falco_common::priority_names[priority];
 	}
 
 	// if format starts with a *, remove it, as we added our own prefix
