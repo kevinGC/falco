@@ -17,7 +17,6 @@ set(FALCO_ENGINE_SOURCE_FILES
     falco_common.cpp
     falco_engine.cpp
     falco_utils.cpp
-    json_evt.cpp
     ruleset.cpp
     formats.cpp
     filter_macro_resolver.cpp

@@ -81,7 +81,7 @@ private:
 		std::set<uint16_t> evttypes()
 		{
 			// todo(jasondellaluce,leogr): temp workaround, remove when fixed in libs
-			if(source == "syscall" || source == "k8s_audit")
+			if(source == "syscall")
 			{
 				return filter->evttypes();
 			}

@@ -22,7 +22,6 @@ limitations under the License.
 #include "sinsp.h"
 #include "filter.h"
 
-#include "json_evt.h"
 #include "falco_common.h"
 
 typedef struct lua_State lua_State;

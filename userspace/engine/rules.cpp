@@ -116,7 +116,7 @@ int falco_rules::add_filter(lua_State *ls)
 
 	// todo(jasondellaluce,leogr,fededp): temp workaround, remove when fixed in libs
 	size_t num_evttypes = 1; // assume plugin
-	if(source == "syscall" || source == "k8s_audit")
+	if(source == "syscall")
 	{
 		num_evttypes = filter->evttypes().size();
 	}
